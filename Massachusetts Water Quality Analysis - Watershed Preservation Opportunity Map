@@ -1,0 +1,1015 @@
+🌊 Massachusetts Water Quality Analysis - Watershed Preservation Opportunity Map
+
+Comprehensive Exploratory Data Analysis
+
+This notebook provides extensive visual analysis of Massachusetts water quality data to identify conservation priorities, stormwater stress indicators, and ecosystem instability patterns.
+
+🎯 Analysis Objectives:
+
+Identify water quality hotspots for conservation
+Detect stormwater stress indicators (high conductivity & TDS)
+Find areas with unstable DO and pH levels
+Map stations with repeated problems
+Create actionable insights for land preservation
+📦 Setup and Library Imports
+# Import required libraries
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
+
+# Visualization
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+# Mapping
+import folium
+from folium import plugins
+
+# Statistics
+from scipy import stats
+
+# Configure visualization settings
+plt.style.use('seaborn-v0_8-whitegrid')
+sns.set_palette('husl')
+%matplotlib inline
+
+print('✅ All libraries loaded successfully!')
+print(f'📅 Analysis Date: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+📂 Data Loading
+# Load the water quality data
+df = pd.read_csv('/mnt/user-data/uploads/sample_water_quality.csv')
+
+# Convert date columns
+df['Sample_Date'] = pd.to_datetime(df['Sample_Date'], errors='coerce')
+df['Quality_Control_Date'] = pd.to_datetime(df['Quality_Control_Date'], errors='coerce')
+
+# Add temporal features
+df['Year'] = df['Sample_Date'].dt.year
+df['Month'] = df['Sample_Date'].dt.month
+df['Month_Name'] = df['Sample_Date'].dt.strftime('%B')
+df['Season'] = df['Sample_Date'].dt.month%12 // 3 + 1
+df['Season_Name'] = df['Season'].map({1: 'Winter', 2: 'Spring', 3: 'Summer', 4: 'Fall'})
+
+print(f"✅ Data loaded: {df.shape[0]:,} records, {df.shape[1]} columns")
+print(f"📅 Date range: {df['Sample_Date'].min().date()} to {df['Sample_Date'].max().date()}")
+print(f"📍 Unique stations: {df['Station_ID'].nunique()}")
+print(f"💧 Watersheds: {df['Watershed_Name'].nunique()}")
+1️⃣ Data Overview & Quality Assessment
+# Dataset overview statistics
+print("📊 DATASET OVERVIEW")
+print("="*60)
+print(f"Total Records: {len(df):,}")
+print(f"Years Covered: {df['Year'].nunique()} ({df['Year'].min()} - {df['Year'].max()})")
+print(f"\n🗺️ Geographic Coverage:")
+print(f"  • Unique Stations: {df['Station_ID'].nunique()}")
+print(f"  • Watersheds: {df['Watershed_Name'].nunique()}")
+print(f"  • Water Bodies: {df['Water_Body_Name'].nunique()}")
+print(f"  • Latitude Range: {df['Latitude'].min():.4f} to {df['Latitude'].max():.4f}")
+print(f"  • Longitude Range: {df['Longitude'].min():.4f} to {df['Longitude'].max():.4f}")
+print(f"\n📈 Sampling Statistics:")
+print(f"  • Average samples per station: {df.groupby('Station_ID').size().mean():.1f}")
+print(f"  • Max samples at one station: {df.groupby('Station_ID').size().max()}")
+print(f"  • Stations with >50 samples: {(df.groupby('Station_ID').size() > 50).sum()}")
+
+# Top watersheds by sample count
+print(f"\n🏆 Top 5 Watersheds by Sample Count:")
+top_watersheds = df['Watershed_Name'].value_counts().head(5)
+for watershed, count in top_watersheds.items():
+    print(f"  • {watershed}: {count:,} samples")
+# Data completeness visualization
+fig = make_subplots(
+    rows=2, cols=3,
+    subplot_titles=(
+        'Records by Year',
+        'Top 10 Watersheds',
+        'Data Completeness (%)',
+        'Samples per Station',
+        'Monthly Sampling Pattern',
+        'Seasonal Distribution'
+    ),
+    specs=[[{'type': 'bar'}, {'type': 'bar'}, {'type': 'bar'}],
+           [{'type': 'histogram'}, {'type': 'scatter'}, {'type': 'pie'}]]
+)
+
+# 1. Records by year
+yearly_counts = df.groupby('Year').size()
+fig.add_trace(
+    go.Bar(x=yearly_counts.index, y=yearly_counts.values,
+           marker_color='steelblue', text=yearly_counts.values,
+           textposition='outside'),
+    row=1, col=1
+)
+
+# 2. Top watersheds
+watershed_counts = df['Watershed_Name'].value_counts().head(10)
+fig.add_trace(
+    go.Bar(x=watershed_counts.values, y=watershed_counts.index,
+           orientation='h', marker_color='teal',
+           text=watershed_counts.values),
+    row=1, col=2
+)
+
+# 3. Data completeness
+params = ['Temperature_C_Numeric', 'pH_Level_Numeric', 'Dissolved_Oxygen_Numeric', 
+          'Specific_Conductivity_Numeric', 'Total_Dissolved_Solids_Numeric']
+completeness = []
+param_names = ['Temperature', 'pH', 'DO', 'Conductivity', 'TDS']
+for param in params:
+    if param in df.columns:
+        completeness.append((df[param].notna().sum()/len(df))*100)
+    else:
+        completeness.append(0)
+
+colors = ['green' if c > 80 else 'yellow' if c > 60 else 'red' for c in completeness]
+fig.add_trace(
+    go.Bar(x=param_names, y=completeness, marker_color=colors,
+           text=[f'{c:.1f}%' for c in completeness], textposition='outside'),
+    row=1, col=3
+)
+
+# 4. Samples per station distribution
+station_samples = df.groupby('Station_ID').size()
+fig.add_trace(
+    go.Histogram(x=station_samples.values, nbinsx=30,
+                marker_color='coral'),
+    row=2, col=1
+)
+
+# 5. Monthly pattern
+monthly_counts = df.groupby('Month').size()
+month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+fig.add_trace(
+    go.Scatter(x=month_names, y=monthly_counts.values,
+              mode='lines+markers', line=dict(color='purple', width=2),
+              marker=dict(size=8)),
+    row=2, col=2
+)
+
+# 6. Seasonal distribution
+seasonal_counts = df['Season_Name'].value_counts()
+fig.add_trace(
+    go.Pie(labels=seasonal_counts.index, values=seasonal_counts.values,
+          marker=dict(colors=['lightblue', 'lightgreen', 'yellow', 'orange'])),
+    row=2, col=3
+)
+
+fig.update_layout(height=700, showlegend=False,
+                 title_text="<b>Water Quality Dataset Overview</b>",
+                 title_font_size=20)
+fig.show()
+2️⃣ Geographic Distribution of Monitoring Stations
+# Create station location map
+station_locations = df.groupby('Station_ID').agg({
+    'Latitude': 'first',
+    'Longitude': 'first',
+    'Watershed_Name': 'first',
+    'Water_Body_Name': 'first',
+    'Station_ID': 'size'
+}).rename(columns={'Station_ID': 'Sample_Count'})
+
+fig = px.scatter_mapbox(
+    station_locations,
+    lat='Latitude',
+    lon='Longitude',
+    color='Watershed_Name',
+    size='Sample_Count',
+    hover_name=station_locations.index,
+    hover_data={'Water_Body_Name': True, 'Sample_Count': True, 'Watershed_Name': True},
+    title='<b>Water Quality Monitoring Stations Across Massachusetts</b>',
+    mapbox_style='carto-positron',
+    zoom=7,
+    height=600
+)
+
+fig.update_layout(
+    mapbox=dict(
+        center=dict(
+            lat=station_locations['Latitude'].mean(),
+            lon=station_locations['Longitude'].mean()
+        )
+    )
+)
+
+fig.show()
+
+print(f"📍 Total monitoring stations mapped: {len(station_locations)}")
+3️⃣ Water Quality Parameter Analysis
+# Parameter summary statistics
+params = ['Temperature_C_Numeric', 'pH_Level_Numeric', 'Dissolved_Oxygen_Numeric',
+          'Specific_Conductivity_Numeric', 'Total_Dissolved_Solids_Numeric', 
+          'Dissolved_Oxygen_Saturation_Numeric']
+
+print("📊 WATER QUALITY PARAMETER STATISTICS")
+print("="*80)
+
+summary_data = []
+for param in params:
+    if param in df.columns:
+        data = df[param].dropna()
+        summary_data.append({
+            'Parameter': param.replace('_Numeric', '').replace('_', ' '),
+            'Count': len(data),
+            'Mean': data.mean(),
+            'Std': data.std(),
+            'Min': data.min(),
+            '25%': data.quantile(0.25),
+            'Median': data.median(),
+            '75%': data.quantile(0.75),
+            'Max': data.max()
+        })
+
+summary_df = pd.DataFrame(summary_data)
+summary_df = summary_df.round(2)
+print(summary_df.to_string(index=False))
+# Parameter distribution plots with thresholds
+fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+fig.suptitle('Water Quality Parameter Distributions with EPA Thresholds', fontsize=14, y=1.02)
+
+# Parameter configurations
+plot_configs = [
+    ('Temperature_C_Numeric', 'Temperature (°C)', axes[0,0], None, None, 'blue'),
+    ('pH_Level_Numeric', 'pH', axes[0,1], 6.5, 8.5, 'green'),
+    ('Dissolved_Oxygen_Numeric', 'DO (mg/L)', axes[0,2], 5, None, 'cyan'),
+    ('Specific_Conductivity_Numeric', 'Conductivity (µS/cm)', axes[1,0], None, 500, 'orange'),
+    ('Total_Dissolved_Solids_Numeric', 'TDS (mg/L)', axes[1,1], None, 500, 'brown'),
+    ('Dissolved_Oxygen_Saturation_Numeric', 'DO Saturation (%)', axes[1,2], 60, None, 'purple')
+]
+
+for param, label, ax, low_thresh, high_thresh, color in plot_configs:
+    if param in df.columns:
+        data = df[param].dropna()
+        
+        if len(data) > 0:
+            # Histogram
+            ax.hist(data, bins=40, density=True, alpha=0.6, color=color, edgecolor='black')
+            
+            # Statistics lines
+            ax.axvline(data.mean(), color='red', linestyle='--', linewidth=2, label=f'Mean: {data.mean():.1f}')
+            ax.axvline(data.median(), color='green', linestyle='--', linewidth=2, label=f'Median: {data.median():.1f}')
+            
+            # Threshold lines and unsafe zones
+            if param == 'pH_Level_Numeric' and low_thresh and high_thresh:
+                ax.axvspan(data.min(), low_thresh, alpha=0.2, color='red')
+                ax.axvspan(high_thresh, data.max(), alpha=0.2, color='red')
+                ax.axvline(low_thresh, color='red', linestyle=':', linewidth=2)
+                ax.axvline(high_thresh, color='red', linestyle=':', linewidth=2)
+            elif param == 'Dissolved_Oxygen_Numeric' and low_thresh:
+                ax.axvspan(data.min(), low_thresh, alpha=0.2, color='red')
+                ax.axvline(low_thresh, color='red', linestyle=':', linewidth=2, label=f'Critical: {low_thresh}')
+            elif high_thresh:
+                ax.axvspan(high_thresh, data.max(), alpha=0.2, color='red')
+                ax.axvline(high_thresh, color='red', linestyle=':', linewidth=2, label=f'Max Safe: {high_thresh}')
+            
+            ax.set_xlabel(label)
+            ax.set_ylabel('Density')
+            ax.set_title(f'{label} (n={len(data):,})')
+            ax.legend(loc='best', fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+4️⃣ Stormwater Stress Analysis
+# Calculate stormwater stress metrics
+stress_metrics = df.groupby('Station_ID').agg({
+    'Specific_Conductivity_Numeric': ['mean', 'max', 'std', 'count'],
+    'Total_Dissolved_Solids_Numeric': ['mean', 'max', 'std'],
+    'Latitude': 'first',
+    'Longitude': 'first',
+    'Watershed_Name': 'first'
+}).round(2)
+
+# Flatten column names
+stress_metrics.columns = ['_'.join(col).strip() for col in stress_metrics.columns.values]
+stress_metrics = stress_metrics.reset_index()
+
+# Calculate stress scores (EPA thresholds: 500 µS/cm for conductivity, 500 mg/L for TDS)
+stress_metrics['conductivity_stress'] = (stress_metrics['Specific_Conductivity_Numeric_mean'] / 500).clip(0, 2)
+stress_metrics['tds_stress'] = (stress_metrics['Total_Dissolved_Solids_Numeric_mean'] / 500).clip(0, 2)
+stress_metrics['stormwater_stress_score'] = (stress_metrics['conductivity_stress'] + stress_metrics['tds_stress']) / 2
+
+# Categorize stress levels
+stress_metrics['stress_category'] = pd.cut(
+    stress_metrics['stormwater_stress_score'],
+    bins=[0, 0.5, 1, 1.5, 2],
+    labels=['Low', 'Moderate', 'High', 'Severe']
+)
+
+print("🚨 STORMWATER STRESS ANALYSIS")
+print("="*60)
+print(f"Total stations analyzed: {len(stress_metrics)}")
+print(f"\nStress Level Distribution:")
+print(stress_metrics['stress_category'].value_counts().to_string())
+
+# Identify high stress stations
+high_stress = stress_metrics[stress_metrics['stormwater_stress_score'] > 1]
+print(f"\n⚠️ Stations with high stormwater stress: {len(high_stress)}")
+print(f"Percentage of stations with high stress: {len(high_stress)/len(stress_metrics)*100:.1f}%")
+# Stormwater stress visualization
+fig = make_subplots(
+    rows=2, cols=2,
+    subplot_titles=(
+        'Conductivity vs TDS Correlation',
+        'Stress Score Distribution',
+        'Top 15 Stressed Stations',
+        'Stress by Watershed'
+    ),
+    specs=[[{'type': 'scatter'}, {'type': 'histogram'}],
+           [{'type': 'bar'}, {'type': 'box'}]]
+)
+
+# 1. Conductivity vs TDS scatter
+fig.add_trace(
+    go.Scatter(
+        x=stress_metrics['Specific_Conductivity_Numeric_mean'],
+        y=stress_metrics['Total_Dissolved_Solids_Numeric_mean'],
+        mode='markers',
+        marker=dict(
+            size=8,
+            color=stress_metrics['stormwater_stress_score'],
+            colorscale='Reds',
+            showscale=True,
+            colorbar=dict(title='Stress', x=0.45, y=0.85, len=0.3)
+        ),
+        text=stress_metrics['Station_ID'],
+        hovertemplate='Station: %{text}<br>Cond: %{x:.0f}<br>TDS: %{y:.0f}'
+    ),
+    row=1, col=1
+)
+# Add threshold lines
+fig.add_hline(y=500, line_dash="dash", line_color="red", row=1, col=1)
+fig.add_vline(x=500, line_dash="dash", line_color="red", row=1, col=1)
+
+# 2. Stress score histogram
+fig.add_trace(
+    go.Histogram(
+        x=stress_metrics['stormwater_stress_score'],
+        nbinsx=25,
+        marker_color='darkred'
+    ),
+    row=1, col=2
+)
+
+# 3. Top stressed stations
+top_stressed = stress_metrics.nlargest(15, 'stormwater_stress_score')
+fig.add_trace(
+    go.Bar(
+        x=top_stressed['Station_ID'],
+        y=top_stressed['stormwater_stress_score'],
+        marker=dict(
+            color=top_stressed['stormwater_stress_score'],
+            colorscale='Reds'
+        ),
+        text=top_stressed['stormwater_stress_score'].round(2),
+        textposition='outside'
+    ),
+    row=2, col=1
+)
+
+# 4. Stress by watershed
+watershed_stress = stress_metrics.groupby('Watershed_Name_first')['stormwater_stress_score'].apply(list)
+for watershed in watershed_stress.index[:10]:  # Top 10 watersheds
+    fig.add_trace(
+        go.Box(
+            y=watershed_stress[watershed],
+            name=watershed[:15],
+            showlegend=False
+        ),
+        row=2, col=2
+    )
+
+fig.update_layout(height=800, showlegend=False,
+                 title_text="<b>Stormwater Stress Analysis Dashboard</b>",
+                 title_font_size=18)
+
+fig.update_xaxes(title_text="Conductivity (µS/cm)", row=1, col=1)
+fig.update_yaxes(title_text="TDS (mg/L)", row=1, col=1)
+fig.update_xaxes(title_text="Stress Score", row=1, col=2)
+fig.update_yaxes(title_text="Frequency", row=1, col=2)
+fig.update_xaxes(title_text="Station ID", tickangle=45, row=2, col=1)
+fig.update_yaxes(title_text="Stress Score", row=2, col=1)
+fig.update_xaxes(title_text="Watershed", tickangle=45, row=2, col=2)
+fig.update_yaxes(title_text="Stress Score", row=2, col=2)
+
+fig.show()
+5️⃣ Water Quality Instability Analysis
+# Calculate instability metrics
+instability_metrics = df.groupby('Station_ID').agg({
+    'Dissolved_Oxygen_Numeric': ['mean', 'std', 'min', 'max', 'count'],
+    'pH_Level_Numeric': ['mean', 'std', 'min', 'max'],
+    'Latitude': 'first',
+    'Longitude': 'first',
+    'Watershed_Name': 'first'
+}).round(2)
+
+instability_metrics.columns = ['_'.join(col).strip() for col in instability_metrics.columns.values]
+instability_metrics = instability_metrics.reset_index()
+
+# Calculate coefficient of variation (instability measure)
+instability_metrics['do_cv'] = (
+    instability_metrics['Dissolved_Oxygen_Numeric_std'] / 
+    instability_metrics['Dissolved_Oxygen_Numeric_mean']
+) * 100
+
+instability_metrics['ph_cv'] = (
+    instability_metrics['pH_Level_Numeric_std'] / 
+    instability_metrics['pH_Level_Numeric_mean']
+) * 100
+
+# pH and DO ranges
+instability_metrics['ph_range'] = (
+    instability_metrics['pH_Level_Numeric_max'] - 
+    instability_metrics['pH_Level_Numeric_min']
+)
+
+instability_metrics['do_range'] = (
+    instability_metrics['Dissolved_Oxygen_Numeric_max'] - 
+    instability_metrics['Dissolved_Oxygen_Numeric_min']
+)
+
+# Count critical events
+critical_events = df.groupby('Station_ID').apply(
+    lambda x: pd.Series({
+        'do_critical': (x['Dissolved_Oxygen_Numeric'] < 5).sum(),
+        'ph_low': (x['pH_Level_Numeric'] < 6.5).sum(),
+        'ph_high': (x['pH_Level_Numeric'] > 8.5).sum()
+    })
+)
+
+instability_metrics = instability_metrics.merge(critical_events, on='Station_ID')
+
+# Calculate instability score
+instability_metrics['instability_score'] = (
+    instability_metrics['do_cv'].fillna(0) / 20 +
+    instability_metrics['ph_cv'].fillna(0) / 10 +
+    instability_metrics['ph_range'] / 2
+).clip(0, 5)
+
+print("🌊 WATER QUALITY INSTABILITY ANALYSIS")
+print("="*60)
+print(f"Stations with DO < 5 mg/L events: {(instability_metrics['do_critical'] > 0).sum()}")
+print(f"Stations with pH violations: {((instability_metrics['ph_low'] > 0) | (instability_metrics['ph_high'] > 0)).sum()}")
+print(f"Average DO coefficient of variation: {instability_metrics['do_cv'].mean():.1f}%")
+print(f"Average pH coefficient of variation: {instability_metrics['ph_cv'].mean():.1f}%")
+# Instability visualization
+fig = make_subplots(
+    rows=2, cols=3,
+    subplot_titles=(
+        'DO Variability (CV)',
+        'pH Variability (CV)',
+        'DO vs pH Instability',
+        'Critical DO Events',
+        'pH Violations',
+        'Instability Score Distribution'
+    ),
+    specs=[[{'type': 'histogram'}, {'type': 'histogram'}, {'type': 'scatter'}],
+           [{'type': 'bar'}, {'type': 'bar'}, {'type': 'histogram'}]]
+)
+
+# 1. DO CV histogram
+fig.add_trace(
+    go.Histogram(
+        x=instability_metrics['do_cv'].dropna(),
+        nbinsx=25,
+        marker_color='blue'
+    ),
+    row=1, col=1
+)
+
+# 2. pH CV histogram
+fig.add_trace(
+    go.Histogram(
+        x=instability_metrics['ph_cv'].dropna(),
+        nbinsx=25,
+        marker_color='green'
+    ),
+    row=1, col=2
+)
+
+# 3. DO vs pH instability scatter
+fig.add_trace(
+    go.Scatter(
+        x=instability_metrics['do_cv'],
+        y=instability_metrics['ph_cv'],
+        mode='markers',
+        marker=dict(
+            size=8,
+            color=instability_metrics['instability_score'],
+            colorscale='Viridis',
+            showscale=True,
+            colorbar=dict(title='Score', x=1.02, y=0.85, len=0.3)
+        ),
+        text=instability_metrics['Station_ID'],
+        hovertemplate='Station: %{text}<br>DO CV: %{x:.1f}%<br>pH CV: %{y:.1f}%'
+    ),
+    row=1, col=3
+)
+
+# 4. Critical DO events
+top_do_critical = instability_metrics.nlargest(15, 'do_critical')
+fig.add_trace(
+    go.Bar(
+        x=top_do_critical['Station_ID'],
+        y=top_do_critical['do_critical'],
+        marker_color='red',
+        text=top_do_critical['do_critical'],
+        textposition='outside'
+    ),
+    row=2, col=1
+)
+
+# 5. pH violations
+instability_metrics['ph_violations'] = instability_metrics['ph_low'] + instability_metrics['ph_high']
+top_ph_violations = instability_metrics.nlargest(15, 'ph_violations')
+fig.add_trace(
+    go.Bar(
+        x=top_ph_violations['Station_ID'],
+        y=top_ph_violations['ph_violations'],
+        marker_color='purple',
+        text=top_ph_violations['ph_violations'],
+        textposition='outside'
+    ),
+    row=2, col=2
+)
+
+# 6. Instability score distribution
+fig.add_trace(
+    go.Histogram(
+        x=instability_metrics['instability_score'],
+        nbinsx=25,
+        marker_color='orange'
+    ),
+    row=2, col=3
+)
+
+fig.update_layout(height=700, showlegend=False,
+                 title_text="<b>Water Quality Instability Analysis</b>",
+                 title_font_size=18)
+
+fig.update_xaxes(title_text="CV (%)", row=1, col=1)
+fig.update_xaxes(title_text="CV (%)", row=1, col=2)
+fig.update_xaxes(title_text="DO CV (%)", row=1, col=3)
+fig.update_yaxes(title_text="pH CV (%)", row=1, col=3)
+fig.update_xaxes(title_text="Station", tickangle=45, row=2, col=1)
+fig.update_xaxes(title_text="Station", tickangle=45, row=2, col=2)
+fig.update_xaxes(title_text="Instability Score", row=2, col=3)
+fig.update_yaxes(title_text="Critical Events", row=2, col=1)
+fig.update_yaxes(title_text="Violations", row=2, col=2)
+
+fig.show()
+6️⃣ Temporal and Seasonal Patterns
+# Seasonal analysis
+fig = make_subplots(
+    rows=2, cols=3,
+    subplot_titles=(
+        'DO by Season',
+        'pH by Season',
+        'Temperature by Season',
+        'Monthly DO Trends',
+        'Monthly Conductivity',
+        'Yearly Trends'
+    ),
+    specs=[[{'type': 'box'}, {'type': 'box'}, {'type': 'box'}],
+           [{'type': 'scatter'}, {'type': 'scatter'}, {'type': 'scatter'}]]
+)
+
+# Season order
+season_order = ['Winter', 'Spring', 'Summer', 'Fall']
+
+# 1-3. Seasonal boxplots
+for season in season_order:
+    season_data = df[df['Season_Name'] == season]
+    
+    # DO by season
+    fig.add_trace(
+        go.Box(y=season_data['Dissolved_Oxygen_Numeric'], name=season, showlegend=False),
+        row=1, col=1
+    )
+    
+    # pH by season
+    fig.add_trace(
+        go.Box(y=season_data['pH_Level_Numeric'], name=season, showlegend=False),
+        row=1, col=2
+    )
+    
+    # Temperature by season
+    fig.add_trace(
+        go.Box(y=season_data['Temperature_C_Numeric'], name=season, showlegend=False),
+        row=1, col=3
+    )
+
+# 4. Monthly DO trends
+monthly_do = df.groupby('Month')['Dissolved_Oxygen_Numeric'].agg(['mean', 'std'])
+month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+fig.add_trace(
+    go.Scatter(
+        x=month_names,
+        y=monthly_do['mean'],
+        mode='lines+markers',
+        error_y=dict(type='data', array=monthly_do['std']),
+        line=dict(color='blue', width=2)
+    ),
+    row=2, col=1
+)
+fig.add_hline(y=5, line_dash="dash", line_color="red", row=2, col=1)
+
+# 5. Monthly Conductivity
+monthly_cond = df.groupby('Month')['Specific_Conductivity_Numeric'].agg(['mean', 'std'])
+fig.add_trace(
+    go.Scatter(
+        x=month_names,
+        y=monthly_cond['mean'],
+        mode='lines+markers',
+        error_y=dict(type='data', array=monthly_cond['std']),
+        line=dict(color='orange', width=2)
+    ),
+    row=2, col=2
+)
+fig.add_hline(y=500, line_dash="dash", line_color="red", row=2, col=2)
+
+# 6. Yearly trends
+yearly_avg = df.groupby('Year')[['Dissolved_Oxygen_Numeric', 'pH_Level_Numeric', 'Specific_Conductivity_Numeric']].mean()
+for param, color, name in [('Dissolved_Oxygen_Numeric', 'blue', 'DO'),
+                           ('pH_Level_Numeric', 'green', 'pH'),
+                           ('Specific_Conductivity_Numeric', 'orange', 'Conductivity')]:
+    # Normalize for comparison
+    normalized = (yearly_avg[param] - yearly_avg[param].mean()) / yearly_avg[param].std()
+    fig.add_trace(
+        go.Scatter(
+            x=yearly_avg.index,
+            y=normalized,
+            mode='lines+markers',
+            name=name,
+            line=dict(color=color, width=2)
+        ),
+        row=2, col=3
+    )
+
+fig.update_layout(height=700, showlegend=True,
+                 title_text="<b>Temporal and Seasonal Patterns</b>",
+                 title_font_size=18)
+
+fig.update_yaxes(title_text="DO (mg/L)", row=1, col=1)
+fig.update_yaxes(title_text="pH", row=1, col=2)
+fig.update_yaxes(title_text="Temp (°C)", row=1, col=3)
+fig.update_xaxes(title_text="Month", row=2, col=1)
+fig.update_yaxes(title_text="DO (mg/L)", row=2, col=1)
+fig.update_xaxes(title_text="Month", row=2, col=2)
+fig.update_yaxes(title_text="Conductivity", row=2, col=2)
+fig.update_xaxes(title_text="Year", row=2, col=3)
+fig.update_yaxes(title_text="Normalized Value", row=2, col=3)
+
+fig.show()
+7️⃣ Conservation Hotspot Identification
+# Combine all metrics to identify hotspots
+hotspots = stress_metrics[['Station_ID', 'Latitude_first', 'Longitude_first', 
+                           'stormwater_stress_score', 'Watershed_Name_first']].copy()
+hotspots.columns = ['Station_ID', 'Latitude', 'Longitude', 'stress_score', 'Watershed']
+
+# Add instability score
+hotspots = hotspots.merge(
+    instability_metrics[['Station_ID', 'instability_score', 'do_critical', 'ph_violations']],
+    on='Station_ID', how='left'
+)
+
+# Calculate persistence score
+problem_counts = df.groupby('Station_ID').apply(
+    lambda x: pd.Series({
+        'total_samples': len(x),
+        'problem_events': (
+            (x['Dissolved_Oxygen_Numeric'] < 5).sum() +
+            ((x['pH_Level_Numeric'] < 6.5) | (x['pH_Level_Numeric'] > 8.5)).sum() +
+            (x['Specific_Conductivity_Numeric'] > 500).sum() +
+            (x['Total_Dissolved_Solids_Numeric'] > 500).sum()
+        )
+    })
+)
+
+problem_counts['persistence_score'] = (problem_counts['problem_events'] / problem_counts['total_samples']).clip(0, 1)
+hotspots = hotspots.merge(problem_counts[['persistence_score']], on='Station_ID', how='left')
+
+# Calculate composite hotspot score (weighted average)
+hotspots['hotspot_score'] = (
+    hotspots['stress_score'].fillna(0) * 0.4 +
+    hotspots['instability_score'].fillna(0) * 0.3 +
+    hotspots['persistence_score'].fillna(0) * 0.3
+) * 100
+
+# Categorize priority levels
+hotspots['priority'] = pd.cut(
+    hotspots['hotspot_score'],
+    bins=[0, 25, 50, 75, 100],
+    labels=['Low', 'Medium', 'High', 'Critical']
+)
+
+print("🎯 CONSERVATION HOTSPOT ANALYSIS")
+print("="*60)
+print("Priority Distribution:")
+print(hotspots['priority'].value_counts().to_string())
+print(f"\nAverage hotspot score: {hotspots['hotspot_score'].mean():.1f}/100")
+print(f"Stations requiring immediate attention (Critical): {(hotspots['priority'] == 'Critical').sum()}")
+# Top conservation priorities
+print("\n🏆 TOP 20 CONSERVATION PRIORITY STATIONS")
+print("="*60)
+top20 = hotspots.nlargest(20, 'hotspot_score')
+
+for idx, (_, row) in enumerate(top20.iterrows(), 1):
+    print(f"{idx:2}. {row['Station_ID']:15} Score: {row['hotspot_score']:6.1f} Priority: {row['priority']:8} Watershed: {row['Watershed']}")
+8️⃣ Interactive Conservation Priority Map
+# Create interactive Plotly map
+fig = px.scatter_mapbox(
+    hotspots,
+    lat='Latitude',
+    lon='Longitude',
+    color='hotspot_score',
+    size='hotspot_score',
+    color_continuous_scale='RdYlGn_r',
+    size_max=15,
+    zoom=7,
+    mapbox_style='carto-positron',
+    title='<b>Water Quality Hotspots - Conservation Priority Map</b>',
+    hover_name='Station_ID',
+    hover_data={
+        'priority': True,
+        'stress_score': ':.2f',
+        'instability_score': ':.2f',
+        'persistence_score': ':.2f',
+        'hotspot_score': ':.1f',
+        'Watershed': True
+    },
+    labels={'hotspot_score': 'Hotspot Score'},
+    height=700
+)
+
+fig.update_layout(
+    mapbox=dict(
+        center=dict(
+            lat=hotspots['Latitude'].mean(),
+            lon=hotspots['Longitude'].mean()
+        )
+    )
+)
+
+fig.show()
+# Create detailed Folium map with layers
+import folium
+from folium import plugins
+
+# Initialize map
+m = folium.Map(
+    location=[hotspots['Latitude'].mean(), hotspots['Longitude'].mean()],
+    zoom_start=8,
+    tiles='OpenStreetMap'
+)
+
+# Add tile layers
+folium.TileLayer('CartoDB positron', name='Light Map').add_to(m)
+folium.TileLayer('CartoDB dark_matter', name='Dark Map').add_to(m)
+
+# Color function
+def get_color(score):
+    if score >= 75: return 'red'
+    elif score >= 50: return 'orange'
+    elif score >= 25: return 'yellow'
+    else: return 'green'
+
+# Add markers for each station
+for idx, row in hotspots.iterrows():
+    popup_text = f"""
+    <div style="width: 200px;">
+        <b>Station: {row['Station_ID']}</b><br>
+        <b>Priority: {row['priority']}</b><br>
+        Hotspot Score: {row['hotspot_score']:.1f}/100<br>
+        <hr>
+        Stress: {row['stress_score']:.2f}<br>
+        Instability: {row['instability_score']:.2f}<br>
+        Persistence: {row['persistence_score']:.2f}<br>
+        Watershed: {row['Watershed']}
+    </div>
+    """
+    
+    folium.CircleMarker(
+        location=[row['Latitude'], row['Longitude']],
+        radius=5 + row['hotspot_score'] / 10,
+        popup=folium.Popup(popup_text, max_width=300),
+        tooltip=f"{row['Station_ID']}: {row['hotspot_score']:.1f}",
+        color=get_color(row['hotspot_score']),
+        fillColor=get_color(row['hotspot_score']),
+        fillOpacity=0.7,
+        weight=2
+    ).add_to(m)
+
+# Add heatmap layer
+heat_data = [[row['Latitude'], row['Longitude'], row['hotspot_score']] 
+             for idx, row in hotspots.iterrows()]
+plugins.HeatMap(heat_data, name='Hotspot Heatmap', radius=15).add_to(m)
+
+# Add layer control
+folium.LayerControl().add_to(m)
+
+# Display map
+m
+9️⃣ Summary Dashboard
+# Create comprehensive dashboard
+fig = make_subplots(
+    rows=3, cols=3,
+    subplot_titles=(
+        'Priority Distribution',
+        'Top 10 Hotspots',
+        'Score Components',
+        'Hotspots by Watershed',
+        'Stress vs Instability',
+        'Problem Events Distribution',
+        'Parameter Correlations',
+        'Monthly Violations',
+        'Action Priority Matrix'
+    ),
+    specs=[[{'type': 'pie'}, {'type': 'bar'}, {'type': 'bar'}],
+           [{'type': 'box'}, {'type': 'scatter'}, {'type': 'histogram'}],
+           [{'type': 'heatmap'}, {'type': 'scatter'}, {'type': 'scatter'}]]
+)
+
+# 1. Priority distribution pie
+priority_counts = hotspots['priority'].value_counts()
+fig.add_trace(
+    go.Pie(
+        labels=priority_counts.index,
+        values=priority_counts.values,
+        marker=dict(colors=['green', 'yellow', 'orange', 'red']),
+        hole=0.3
+    ),
+    row=1, col=1
+)
+
+# 2. Top 10 hotspots
+top10 = hotspots.nlargest(10, 'hotspot_score')
+fig.add_trace(
+    go.Bar(
+        x=top10['Station_ID'],
+        y=top10['hotspot_score'],
+        marker=dict(color=top10['hotspot_score'], colorscale='RdYlGn_r'),
+        text=top10['hotspot_score'].round(1),
+        textposition='outside'
+    ),
+    row=1, col=2
+)
+
+# 3. Score components
+components = ['stress_score', 'instability_score', 'persistence_score']
+component_means = [hotspots[c].mean() for c in components]
+fig.add_trace(
+    go.Bar(
+        x=['Stormwater\nStress', 'Water Quality\nInstability', 'Problem\nPersistence'],
+        y=component_means,
+        marker_color=['red', 'blue', 'green'],
+        text=[f'{m:.2f}' for m in component_means],
+        textposition='outside'
+    ),
+    row=1, col=3
+)
+
+# 4. Hotspots by watershed
+top_watersheds = hotspots['Watershed'].value_counts().head(8).index
+for watershed in top_watersheds:
+    watershed_scores = hotspots[hotspots['Watershed'] == watershed]['hotspot_score']
+    fig.add_trace(
+        go.Box(y=watershed_scores, name=watershed[:12], showlegend=False),
+        row=2, col=1
+    )
+
+# 5. Stress vs Instability
+fig.add_trace(
+    go.Scatter(
+        x=hotspots['stress_score'],
+        y=hotspots['instability_score'],
+        mode='markers',
+        marker=dict(
+            size=10,
+            color=hotspots['hotspot_score'],
+            colorscale='RdYlGn_r',
+            showscale=True,
+            colorbar=dict(title='Score', x=0.68, y=0.5, len=0.25)
+        ),
+        text=hotspots['Station_ID'],
+        hovertemplate='%{text}<br>Stress: %{x:.2f}<br>Instability: %{y:.2f}'
+    ),
+    row=2, col=2
+)
+
+# 6. Problem events distribution
+fig.add_trace(
+    go.Histogram(
+        x=hotspots['do_critical'] + hotspots['ph_violations'],
+        nbinsx=20,
+        marker_color='darkred'
+    ),
+    row=2, col=3
+)
+
+# 7. Parameter correlations
+corr_params = ['stress_score', 'instability_score', 'persistence_score', 'hotspot_score']
+corr_matrix = hotspots[corr_params].corr()
+fig.add_trace(
+    go.Heatmap(
+        z=corr_matrix.values,
+        x=['Stress', 'Instability', 'Persistence', 'Hotspot'],
+        y=['Stress', 'Instability', 'Persistence', 'Hotspot'],
+        colorscale='RdBu',
+        zmid=0,
+        text=corr_matrix.values.round(2),
+        texttemplate='%{text}'
+    ),
+    row=3, col=1
+)
+
+# 8. Monthly violations
+monthly_violations = df.groupby('Month').apply(
+    lambda x: (
+        (x['Dissolved_Oxygen_Numeric'] < 5).sum() +
+        ((x['pH_Level_Numeric'] < 6.5) | (x['pH_Level_Numeric'] > 8.5)).sum()
+    ) / len(x) * 100
+)
+month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+fig.add_trace(
+    go.Scatter(
+        x=month_names,
+        y=monthly_violations.values,
+        mode='lines+markers',
+        line=dict(color='red', width=2),
+        marker=dict(size=8)
+    ),
+    row=3, col=2
+)
+
+# 9. Action priority matrix
+fig.add_trace(
+    go.Scatter(
+        x=hotspots['stress_score'],
+        y=hotspots['persistence_score'],
+        mode='markers',
+        marker=dict(
+            size=12,
+            color=hotspots['priority'].map({'Low': 0, 'Medium': 1, 'High': 2, 'Critical': 3}),
+            colorscale=['green', 'yellow', 'orange', 'red'],
+            showscale=False
+        ),
+        text=hotspots['Station_ID'],
+        hovertemplate='%{text}<br>Stress: %{x:.2f}<br>Persistence: %{y:.2f}'
+    ),
+    row=3, col=3
+)
+
+# Add quadrant lines
+fig.add_hline(y=0.5, line_dash="dash", line_color="gray", row=3, col=3)
+fig.add_vline(x=1, line_dash="dash", line_color="gray", row=3, col=3)
+
+fig.update_layout(height=1000, showlegend=False,
+                 title_text="<b>Conservation Priority Dashboard</b>",
+                 title_font_size=20)
+
+fig.show()
+📊 Export Results
+# Export hotspot analysis results
+output_file = '/mnt/user-data/outputs/conservation_hotspots.csv'
+hotspots.to_csv(output_file, index=False)
+print(f"✅ Hotspot analysis results saved to: {output_file}")
+
+# Save summary report
+report_file = '/mnt/user-data/outputs/conservation_report.txt'
+with open(report_file, 'w') as f:
+    f.write("WATERSHED CONSERVATION PRIORITY REPORT\n")
+    f.write("="*50 + "\n\n")
+    f.write(f"Analysis Date: {datetime.now()}\n")
+    f.write(f"Total Stations Analyzed: {len(hotspots)}\n\n")
+    f.write("Priority Distribution:\n")
+    f.write(hotspots['priority'].value_counts().to_string())
+    f.write("\n\nTop 20 Conservation Priorities:\n")
+    top20_report = hotspots.nlargest(20, 'hotspot_score')[['Station_ID', 'hotspot_score', 'priority', 'Watershed']]
+    f.write(top20_report.to_string(index=False))
+    
+print(f"✅ Summary report saved to: {report_file}")
+🎯 Key Findings & Recommendations
+
+Critical Findings:
+
+Hotspot Distribution: Analysis of priority levels across all monitoring stations
+Stormwater Stress: Stations showing elevated conductivity and TDS from runoff
+Ecosystem Instability: Areas with high variability in DO and pH
+Persistent Problems: Stations with repeated water quality violations
+Recommendations:
+
+Immediate Action: Focus land preservation on Critical priority stations
+Green Infrastructure: Implement stormwater controls in high-stress watersheds
+Monitoring Enhancement: Increase frequency at unstable locations
+Community Engagement: Partner with communities near hotspots
+Next Steps:
+
+Overlay environmental justice data
+Add impervious surface analysis
+Incorporate climate projections
+Develop watershed-specific action plans
